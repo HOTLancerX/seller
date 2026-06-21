@@ -1,26 +1,18 @@
 /**
- * POST /api/seller/wallet/process
+ * POST /api/seller/wallet/process  (admin-only)
  *
- * Cron / background job endpoint (admin-only).
- * Two jobs run in one call:
+ * 1. RELEASE: pending transactions where availableAfter <= now → available
+ *    wallet.balance += amount, wallet.pendingBalance -= amount
  *
- * 1. RELEASE: pending transactions where availableAfter <= now
- *    → status: pending → available
- *    → wallet.balance  += amount
- *    → wallet.pendingBalance -= amount
- *
- * 2. CANCEL: pending transactions linked to cancelled orders
- *    → status: pending → cancelled
- *    → wallet.pendingBalance -= amount
- *
- * Call this from a cron job or manually via admin UI:
- *   POST /api/seller/wallet/process
+ * 2. CANCEL: pending transactions linked to cancelled orders → cancelled
+ *    wallet.pendingBalance -= amount
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { resolveUser } from "@/lib/session";
-import { getWalletCollection } from "@/plugin/seller/models/Wallet";
-import { getTransactionCollection } from "@/plugin/seller/models/Transaction";
+import connectDB from "@/lib/mongodb";
+import { getTransactionModel } from "@/plugin/seller/models/Transaction";
+import { updateWallet } from "@/plugin/seller/models/Wallet";
 import { getOrdersCollection, initializeOrdersCollection } from "@/plugin/product/models/Order";
 
 export const dynamic = "force-dynamic";
@@ -33,67 +25,41 @@ export async function POST(req: NextRequest): Promise<Response> {
         const isAdmin = caller.userType === "admin" || caller.userType === "superadmin";
         if (!isAdmin) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-        const txCol     = await getTransactionCollection();
-        const walletCol = await getWalletCollection();
-
+        await connectDB();
         await initializeOrdersCollection();
-        const ordersCol = await getOrdersCollection();
 
+        const TxModel  = getTransactionModel();
+        const ordersCol = await getOrdersCollection();
         const now = new Date();
 
-        // ── 1. Release matured pending transactions ───────────────────────────
-        const matured = await txCol.find({
+        // ── 1. Release matured pending transactions ─────────────────────────
+        const matured = await TxModel.find({
             type:           "credit",
             status:         "pending",
             availableAfter: { $lte: now },
-        }).toArray();
+        }).lean() as any[];
 
         let released = 0;
         for (const tx of matured) {
-            await txCol.updateOne(
-                { _id: tx._id },
-                { $set: { status: "available", updatedAt: now } }
-            );
-            await walletCol.updateOne(
-                { userId: tx.userId },
-                {
-                    $inc: { balance: tx.amount, pendingBalance: -tx.amount },
-                    $set: { updatedAt: now },
-                },
-                { upsert: true }
-            );
+            await TxModel.updateOne({ _id: tx._id }, { $set: { status: "available" } });
+            await updateWallet(tx.userId, { balance: tx.amount, pendingBalance: -tx.amount });
             released++;
         }
 
-        // ── 2. Cancel pending transactions for cancelled orders ───────────────
-        const pendingTxs = await txCol.find({
+        // ── 2. Cancel pending txs for cancelled orders ──────────────────────
+        const pendingTxs = await TxModel.find({
             type:    "credit",
             status:  "pending",
             orderId: { $exists: true, $ne: null },
-        }).toArray();
+        }).lean() as any[];
 
         let cancelled = 0;
         for (const tx of pendingTxs) {
-            if (!tx.orderId) continue;
-            const order = await ordersCol.findOne({ _id: { $toString: tx.orderId } } as any);
-            // Use orderNumber match as fallback
-            const matchedOrder = order ?? (tx.orderNumber
-                ? await ordersCol.findOne({ orderNumber: tx.orderNumber })
-                : null);
-
-            if (matchedOrder?.status === "cancelled") {
-                await txCol.updateOne(
-                    { _id: tx._id },
-                    { $set: { status: "cancelled", updatedAt: now } }
-                );
-                await walletCol.updateOne(
-                    { userId: tx.userId },
-                    {
-                        $inc: { pendingBalance: -tx.amount },
-                        $set: { updatedAt: now },
-                    },
-                    { upsert: true }
-                );
+            if (!tx.orderNumber) continue;
+            const order = await ordersCol.findOne({ orderNumber: tx.orderNumber });
+            if (order?.status === "cancelled") {
+                await TxModel.updateOne({ _id: tx._id }, { $set: { status: "cancelled" } });
+                await updateWallet(tx.userId, { pendingBalance: -tx.amount });
                 cancelled++;
             }
         }

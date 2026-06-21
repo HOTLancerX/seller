@@ -2,32 +2,25 @@
  * GET /api/seller/orders?userId=<id>
  *
  * Returns orders that contain at least one item belonging to this seller.
- *
- * Two-pass strategy handles both old and new orders:
- *   1. New orders: items[].uploadedBy === userId  (stamped at checkout)
- *   2. Old orders: items[].productId is in the seller's PostInfo set
- *      (backfill — for orders placed before the uploadedBy fix)
+ * Two-pass: uploadedBy field (new) + PostInfo lookup (old orders).
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { resolveUser } from "@/lib/session";
+import connectDB from "@/lib/mongodb";
+import PostInfo from "@/models/post_info";
 import { getOrdersCollection, initializeOrdersCollection } from "@/plugin/product/models/Order";
-import { getCollection } from "@/lib/mongodb";
-import type { Document } from "mongodb";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest): Promise<Response> {
     try {
         const caller = await resolveUser(req);
-        if (!caller) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-        }
+        if (!caller) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
         const { userId: callerUserId, userType } = caller;
         const { searchParams } = new URL(req.url);
         const requestedUserId = searchParams.get("userId") ?? "";
-
         const isAdmin = userType === "admin" || userType === "superadmin";
 
         if (!isAdmin && requestedUserId !== callerUserId) {
@@ -35,46 +28,35 @@ export async function GET(req: NextRequest): Promise<Response> {
         }
 
         const targetUserId = requestedUserId || callerUserId;
-
         const page   = Math.max(1, parseInt(searchParams.get("page")  ?? "1",  10));
         const limit  = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") ?? "10", 10)));
         const skip   = (page - 1) * limit;
         const status = searchParams.get("status") ?? "";
 
+        await connectDB();
+
+        // Get all productIds uploaded by this seller via PostInfo
+        const infoMatches = await PostInfo.find({ name: "userId", value: targetUserId })
+            .select("postId").lean() as any[];
+        const sellerProductIds = infoMatches
+            .map((p: any) => String(p.postId))
+            .filter(Boolean);
+
         await initializeOrdersCollection();
         const ordersCol = await getOrdersCollection();
 
-        // ── Step 1: find all productIds uploaded by this seller (via PostInfo) ──
-        // PostInfo stores { postId, name: "userId", value: "<sellerId>" }
-        const postInfoCol = await getCollection<Document>("postinfos");
-        const sellerPostInfos = await postInfoCol
-            .find({ name: "userId", value: targetUserId })
-            .toArray();
+        // Match orders via uploadedBy (new) OR productId in seller's set (old)
+        const orClauses: any[] = [{ "items.uploadedBy": targetUserId }];
+        if (sellerProductIds.length > 0) {
+            orClauses.push({ "items.productId": { $in: sellerProductIds } });
+        }
 
-        const sellerProductIds = sellerPostInfos.map(p => p.postId?.toString()).filter(Boolean);
-
-        // ── Step 2: query orders matching either strategy ──────────────────────
-        // OR:  items.uploadedBy === userId  (new orders)
-        //      items.productId  in seller's product set (old orders without uploadedBy)
-        const sellerQuery: Record<string, any> = {
-            $or: [
-                { "items.uploadedBy": targetUserId },
-                ...(sellerProductIds.length > 0
-                    ? [{ "items.productId": { $in: sellerProductIds } }]
-                    : []),
-            ],
-        };
-
-        if (status) sellerQuery.status = status;
+        const query: Record<string, any> = { $or: orClauses };
+        if (status) query.status = status;
 
         const [orders, total] = await Promise.all([
-            ordersCol
-                .find(sellerQuery)
-                .sort({ createdAt: -1 })
-                .skip(skip)
-                .limit(limit)
-                .toArray(),
-            ordersCol.countDocuments(sellerQuery),
+            ordersCol.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).toArray(),
+            ordersCol.countDocuments(query),
         ]);
 
         return NextResponse.json({

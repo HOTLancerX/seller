@@ -1,15 +1,17 @@
 /**
- * GET /api/seller/withdrawals          — admin: list all withdrawal requests
+ * GET /api/seller/withdrawals          — admin: list all requests
  * GET /api/seller/withdrawals?mine=1   — seller: own requests
- * PUT /api/seller/withdrawals          — admin: approve or reject a request
+ * PUT /api/seller/withdrawals          — admin: approve or reject
+ * @version 2
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { resolveUser } from "@/lib/session";
-import { getWithdrawalCollection } from "@/plugin/seller/models/Withdrawal";
-import { getTransactionCollection } from "@/plugin/seller/models/Transaction";
-import { getWalletCollection } from "@/plugin/seller/models/Wallet";
-import { ObjectId } from "mongodb";
+import connectDB from "@/lib/mongodb";
+import { getWithdrawalModel, serializeWithdrawal } from "@/plugin/seller/models/Withdrawal";
+import { getTransactionModel } from "@/plugin/seller/models/Transaction";
+import { updateWallet } from "@/plugin/seller/models/Wallet";
+import mongoose from "mongoose";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +22,8 @@ export async function GET(req: NextRequest): Promise<Response> {
         const caller = await resolveUser(req);
         if (!caller) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+        await connectDB();
+
         const isAdmin = caller.userType === "admin" || caller.userType === "superadmin";
         const { searchParams } = new URL(req.url);
         const mine   = searchParams.get("mine") === "1";
@@ -28,21 +32,19 @@ export async function GET(req: NextRequest): Promise<Response> {
         const limit  = 20;
         const skip   = (page - 1) * limit;
 
-        const wCol  = await getWithdrawalCollection();
+        const Withdrawal = getWithdrawalModel();
         const query: Record<string, any> = {};
 
-        if (!isAdmin || mine) {
-            query.userId = caller.userId;
-        }
+        if (!isAdmin || mine) query.userId = caller.userId;
         if (status) query.status = status;
 
-        const [withdrawals, total] = await Promise.all([
-            wCol.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).toArray(),
-            wCol.countDocuments(query),
+        const [docs, total] = await Promise.all([
+            Withdrawal.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).lean() as Promise<any[]>,
+            Withdrawal.countDocuments(query),
         ]);
 
         return NextResponse.json({
-            withdrawals: withdrawals.map(w => ({ ...w, _id: w._id?.toString() })),
+            withdrawals: docs.map(serializeWithdrawal),
             total,
             pages: Math.ceil(total / limit),
             page,
@@ -70,60 +72,52 @@ export async function PUT(req: NextRequest): Promise<Response> {
         };
 
         if (!body.id || !["approved", "rejected"].includes(body.action)) {
-            return NextResponse.json({ error: "id and action (approved/rejected) are required" }, { status: 400 });
+            return NextResponse.json({ error: "id and action are required" }, { status: 400 });
         }
 
-        const wCol  = await getWithdrawalCollection();
-        let oid: ObjectId;
-        try { oid = new ObjectId(body.id); } catch {
+        if (!mongoose.isValidObjectId(body.id)) {
             return NextResponse.json({ error: "Invalid id" }, { status: 400 });
         }
 
-        const withdrawal = await wCol.findOne({ _id: oid });
-        if (!withdrawal) return NextResponse.json({ error: "Withdrawal not found" }, { status: 404 });
+        await connectDB();
+
+        const Withdrawal = getWithdrawalModel();
+        const withdrawal = await Withdrawal.findById(body.id).lean() as any;
+
+        if (!withdrawal) {
+            return NextResponse.json({ error: "Withdrawal not found" }, { status: 404 });
+        }
         if (withdrawal.status !== "pending") {
             return NextResponse.json({ error: "Already processed" }, { status: 400 });
         }
 
         const now = new Date();
 
-        await wCol.updateOne(
-            { _id: oid },
-            {
-                $set: {
-                    status:      body.action,
-                    adminNote:   body.adminNote ?? "",
-                    processedAt: now,
-                },
-            }
+        await Withdrawal.updateOne(
+            { _id: withdrawal._id },
+            { $set: { status: body.action, adminNote: body.adminNote ?? "", processedAt: now } }
         );
 
-        // If approved — deduct from wallet and create a debit transaction
         if (body.action === "approved") {
-            const walletCol = await getWalletCollection();
-            await walletCol.updateOne(
-                { userId: withdrawal.userId },
-                {
-                    $inc: { balance: -withdrawal.amount, totalWithdrawn: withdrawal.amount },
-                    $set: { updatedAt: now },
-                },
-                { upsert: true }
-            );
+            // Deduct balance from wallet
+            await updateWallet(withdrawal.userId, {
+                balance:        -withdrawal.amount,
+                totalWithdrawn:  withdrawal.amount,
+            });
 
-            const txCol = await getTransactionCollection();
-            await txCol.insertOne({
-                userId:       withdrawal.userId,
-                withdrawalId: body.id,
-                type:         "withdrawal",
-                status:       "paid",
-                gross:        withdrawal.amount,
+            // Create a paid debit transaction
+            const TxModel = getTransactionModel();
+            await TxModel.create({
+                userId:         withdrawal.userId,
+                withdrawalId:   String(withdrawal._id),
+                type:           "withdrawal",
+                status:         "paid",
+                gross:          withdrawal.amount,
                 commissionRate: 0,
-                adminAmount:  0,
-                amount:       withdrawal.amount,
-                note:         `Withdrawal approved. ${body.adminNote ?? ""}`.trim(),
-                createdAt:    now,
-                updatedAt:    now,
-            } as any);
+                adminAmount:    0,
+                amount:         withdrawal.amount,
+                note:           `Withdrawal approved. ${body.adminNote ?? ""}`.trim(),
+            });
         }
 
         return NextResponse.json({ success: true });

@@ -1,14 +1,13 @@
 /**
  * POST /api/seller/wallet/withdraw
- *
- * Seller submits a withdrawal request.
- * Validates available balance — does NOT deduct until admin approves.
+ * Seller submits a withdrawal request. Balance is NOT deducted until admin approves.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { resolveUser, getAuthSession } from "@/lib/session";
 import { getOrCreateWallet } from "@/plugin/seller/models/Wallet";
-import { getWithdrawalCollection } from "@/plugin/seller/models/Withdrawal";
+import { getWithdrawalModel } from "@/plugin/seller/models/Withdrawal";
+import connectDB from "@/lib/mongodb";
 
 export const dynamic = "force-dynamic";
 
@@ -28,8 +27,9 @@ export async function POST(req: NextRequest): Promise<Response> {
             return NextResponse.json({ error: "Payment details are required" }, { status: 400 });
         }
 
-        const wallet = await getOrCreateWallet(caller.userId);
+        await connectDB();
 
+        const wallet = await getOrCreateWallet(caller.userId);
         if (wallet.balance < amount) {
             return NextResponse.json(
                 { error: `Insufficient balance. Available: ${wallet.balance.toFixed(2)}` },
@@ -37,9 +37,8 @@ export async function POST(req: NextRequest): Promise<Response> {
             );
         }
 
-        // Check no pending withdrawal already exists
-        const wCol = await getWithdrawalCollection();
-        const existing = await wCol.findOne({ userId: caller.userId, status: "pending" });
+        const Withdrawal = getWithdrawalModel();
+        const existing = await Withdrawal.findOne({ userId: caller.userId, status: "pending" }).lean();
         if (existing) {
             return NextResponse.json(
                 { error: "You already have a pending withdrawal request." },
@@ -47,18 +46,14 @@ export async function POST(req: NextRequest): Promise<Response> {
             );
         }
 
-        const now = new Date();
-        const withdrawal = {
+        await Withdrawal.create({
             userId:         caller.userId,
-            userName:       authUser?.name ?? "",
+            userName:       authUser?.name  ?? "",
             userEmail:      authUser?.email ?? "",
             amount,
             paymentDetails: paymentDetails.trim(),
-            status:         "pending" as const,
-            createdAt:      now,
-        };
-
-        await wCol.insertOne(withdrawal as any);
+            status:         "pending",
+        });
 
         return NextResponse.json({ success: true });
     } catch (err) {

@@ -29,14 +29,16 @@
  *   PUT  /api/seller/withdrawals            → admin: approve/reject
  */
 
-import { addHook, type PluginMeta } from "@/hook";
-import { Switch, Number as NumberField } from "@/components/ui";
+import { addHook, addPostType, type PluginMeta } from "@/hook";
+import { Switch, Number as NumberField, Text } from "@/components/ui";
 import SellerProductList  from "./pages/SellerProductList";
 import SellerProductForm  from "./pages/SellerProductForm";
 import SellerOrderList    from "./pages/SellerOrderList";
 import SellerOrderDetails from "./pages/SellerOrderDetails";
 import SellerWallet       from "./pages/SellerWallet";
 import WithdrawalManager  from "./admin/WithdrawalManager";
+import SellerList         from "./admin/SellerList";
+import SellerLayout1      from "./layout/Layout1";
 
 // ─── Plugin metadata ──────────────────────────────────────────────────────────
 export const PLUGINS: PluginMeta = {
@@ -55,6 +57,27 @@ export const PLUGINS: PluginMeta = {
  * Called by PluginList.reregisterHooks() after the gate is armed.
  */
 export function register() {
+
+    // ─── Seller profile page template ────────────────────────────────────────
+    // URL: /<permalink-prefix>/<user-slug>  (default: /seller/<user-slug>)
+    // The page is driven by User.slug — no Post document needed.
+    // Permalink "seller" is seeded automatically when the seller plugin is active.
+    // To change it go to Admin → Permalinks and set the "seller" prefix.
+    // URL: /<permalink-prefix>/<seller-slug>
+    // Set the prefix to "seller" in the Permalink admin page.
+    // The template shows the seller's profile + their product grid.
+    addHook("root.pages", [
+        {
+            key:      "seller",
+            label:    "Seller Layout 1",
+            type:     "seller",
+            slug:     "dynamic",
+            style:    "left",
+            position: 10,
+            active:   true,
+            component: SellerLayout1,
+        },
+    ], PLUGINS.nx);
 
     // ─── cat.form — Seller Commission % on product categories ────────────────
     // Only admins visit the category form, so no extra type-gating needed.
@@ -87,7 +110,7 @@ export function register() {
             key:      "seller",
             label:    "Seller",
             icon:     "solar:shop-bold",
-            slug:     "seller/withdrawals",
+            slug:     "seller",
             parent:   "",
             position: 20,
         },
@@ -111,6 +134,14 @@ export function register() {
             style:    "left",
             position: 50,
             path:     WithdrawalManager,
+        },
+        {
+            key:      "seller",
+            label:    "Seller",
+            type:     "seller-admin",
+            style:    "left",
+            position: 50,
+            path:     SellerList,
         },
     ], PLUGINS.nx);
 
