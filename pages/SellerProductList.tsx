@@ -2,10 +2,6 @@
 
 /**
  * Seller account — My Products  (/account/post/product)
- *
- * Lists all products uploaded by the currently logged-in seller.
- * The API is queried with the session userId so only their own products appear.
- * Sellers can add, edit, or delete their own products from this page.
  */
 
 import { useEffect, useState, useCallback } from "react";
@@ -18,13 +14,15 @@ interface Product {
     title: string;
     slug: string;
     status: string;
+    image?: string;
+    price?: number;
     createdAt: string;
 }
 
-const STATUS_BADGE: Record<string, { label: string; cls: string }> = {
-    published: { label: "Published", cls: "bg-emerald-100 text-emerald-700 ring-1 ring-emerald-300" },
-    draft:     { label: "Draft",     cls: "bg-amber-100 text-amber-700 ring-1 ring-amber-300" },
-    trash:     { label: "Trash",     cls: "bg-red-100 text-red-700 ring-1 ring-red-300" },
+const STATUS_CONFIG: Record<string, { label: string; dot: string; bg: string; text: string }> = {
+    published: { label: "Published", dot: "bg-emerald-400", bg: "bg-emerald-50",  text: "text-emerald-700" },
+    draft:     { label: "Draft",     dot: "bg-amber-400",   bg: "bg-amber-50",    text: "text-amber-700"   },
+    trash:     { label: "Trash",     dot: "bg-red-400",     bg: "bg-red-50",      text: "text-red-700"     },
 };
 
 export default function SellerProductList() {
@@ -33,15 +31,13 @@ export default function SellerProductList() {
     const [products, setProducts] = useState<Product[]>([]);
     const [loading,  setLoading]  = useState(true);
     const [deleting, setDeleting] = useState<string | null>(null);
+    const [filter,   setFilter]   = useState("");
 
     const fetchProducts = useCallback(async () => {
         if (!user?._id) return;
         setLoading(true);
         try {
-            const res = await fetch(
-                `/api/seller/products?userId=${encodeURIComponent(user._id)}`,
-                { credentials: "include" }
-            );
+            const res = await fetch(`/api/seller/products?userId=${encodeURIComponent(user._id)}`, { credentials: "include" });
             if (res.ok) {
                 const data = await res.json();
                 setProducts(data.products ?? []);
@@ -59,115 +55,163 @@ export default function SellerProductList() {
             const EXPRESS_API = process.env.NEXT_PUBLIC_EXPRESS_API_URL ?? "http://localhost:5000";
             const LICENSE_KEY = process.env.NEXT_PUBLIC_LICENSE_KEY ?? "";
             await fetch(`${EXPRESS_API}/post?id=${id}`, {
-                method: "DELETE",
-                credentials: "include",
+                method: "DELETE", credentials: "include",
                 headers: { "x-license-key": LICENSE_KEY },
             });
-            setProducts((prev) => prev.filter((p) => p._id !== id));
+            setProducts(prev => prev.filter(p => p._id !== id));
         } catch { /* silent */ }
         finally { setDeleting(null); }
     };
 
+    const filtered = filter
+        ? products.filter(p => p.status === filter)
+        : products;
+
+    const counts = products.reduce((acc, p) => {
+        acc[p.status] = (acc[p.status] ?? 0) + 1;
+        return acc;
+    }, {} as Record<string, number>);
+
     return (
-        <div className="space-y-6">
-            {/* Header */}
+        <div className="space-y-5">
+
+            {/* ── Header ── */}
             <div className="flex items-center justify-between gap-3 flex-wrap">
                 <div>
-                    <h1 className="text-xl font-bold text-gray-900">My Products</h1>
-                    {!loading && (
-                        <p className="text-sm text-gray-400 mt-0.5">
-                            {products.length} product{products.length !== 1 ? "s" : ""}
-                        </p>
-                    )}
+                    <h1 className="text-xl font-black text-gray-900">My Products</h1>
+                    <p className="text-sm text-gray-400 mt-0.5">
+                        {loading ? "Loading…" : `${products.length} product${products.length !== 1 ? "s" : ""} total`}
+                    </p>
                 </div>
-                <Link
-                    href="/account/post/product/new"
-                    className="inline-flex items-center gap-2 bg-linear-to-r from-indigo-600 to-violet-600 text-white px-4 py-2 rounded-xl font-medium hover:opacity-90 transition text-sm shadow"
-                >
+                <Link href="/account/post/product/new"
+                    className="inline-flex items-center gap-2 bg-linear-to-r from-amber-500 to-orange-500 text-white px-4 py-2.5 rounded-xl font-semibold hover:shadow-md hover:shadow-amber-200 hover:-translate-y-px transition-all text-sm">
                     <Icon icon="solar:add-circle-bold" width={18} />
                     Add Product
                 </Link>
             </div>
 
-            {/* Loading */}
-            {loading && (
-                <div className="flex items-center justify-center py-20 text-gray-300">
-                    <Icon icon="svg-spinners:ring-resize" width={32} />
-                </div>
-            )}
-
-            {/* Empty */}
-            {!loading && products.length === 0 && (
-                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm py-20 text-center">
-                    <Icon icon="solar:cart-outline" width={52} className="mx-auto mb-4 text-gray-200" />
-                    <p className="text-base font-semibold text-gray-500">No products yet</p>
-                    <p className="text-sm text-gray-400 mt-1 mb-6">
-                        Start by adding your first product.
-                    </p>
-                    <Link
-                        href="/account/post/product/new"
-                        className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-500 text-white rounded-xl text-sm font-semibold hover:opacity-90 transition"
-                    >
-                        <Icon icon="solar:add-circle-bold" width={16} />
-                        Add Product
-                    </Link>
-                </div>
-            )}
-
-            {/* Product table */}
+            {/* ── Status filter tabs ── */}
             {!loading && products.length > 0 && (
-                <div className="overflow-x-auto rounded-2xl border border-gray-200 shadow-sm">
-                    <table className="w-full text-sm">
-                        <thead>
-                            <tr className="bg-gray-50 border-b border-gray-200">
-                                <th className="text-left px-5 py-3 font-semibold text-gray-600">Title</th>
-                                <th className="text-left px-5 py-3 font-semibold text-gray-600">Status</th>
-                                <th className="text-left px-5 py-3 font-semibold text-gray-600">Created</th>
-                                <th className="px-5 py-3" />
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-100 bg-white">
-                            {products.map((product) => {
-                                const badge = STATUS_BADGE[product.status] ?? STATUS_BADGE.draft;
-                                return (
-                                    <tr key={product._id} className="hover:bg-gray-50 transition">
-                                        <td className="px-5 py-3 font-medium text-gray-800">
-                                            {product.title}
-                                        </td>
-                                        <td className="px-5 py-3">
-                                            <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${badge.cls}`}>
-                                                {badge.label}
-                                            </span>
-                                        </td>
-                                        <td className="px-5 py-3 text-gray-400 text-xs">
-                                            {new Date(product.createdAt).toLocaleDateString()}
-                                        </td>
-                                        <td className="px-5 py-3">
-                                            <div className="flex items-center justify-end gap-2">
-                                                <Link
-                                                    href={`/account/post/product/${product._id}`}
-                                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition"
-                                                >
-                                                    <Icon icon="solar:pen-bold" width={13} /> Edit
-                                                </Link>
-                                                <button
-                                                    onClick={() => handleDelete(product._id)}
-                                                    disabled={deleting === product._id}
-                                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-red-50 text-red-500 hover:bg-red-100 transition disabled:opacity-50"
-                                                >
-                                                    {deleting === product._id
-                                                        ? <Icon icon="svg-spinners:ring-resize" width={13} />
-                                                        : <Icon icon="solar:trash-bin-trash-bold" width={13} />
-                                                    }
-                                                    Delete
-                                                </button>
+                <div className="flex items-center gap-2 flex-wrap">
+                    <button onClick={() => setFilter("")}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition ${!filter ? "bg-gray-900 text-white" : "bg-white border border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
+                        All
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${!filter ? "bg-white/20 text-white" : "bg-gray-100 text-gray-500"}`}>
+                            {products.length}
+                        </span>
+                    </button>
+                    {Object.entries(STATUS_CONFIG).map(([key, cfg]) => (
+                        <button key={key} onClick={() => setFilter(key === filter ? "" : key)}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition ${filter === key ? `${cfg.bg} ${cfg.text}` : "bg-white border border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
+                            {cfg.label}
+                            {counts[key] !== undefined && (
+                                <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${filter === key ? "bg-black/10" : "bg-gray-100 text-gray-500"}`}>
+                                    {counts[key]}
+                                </span>
+                            )}
+                        </button>
+                    ))}
+                </div>
+            )}
+
+            {/* ── Loading ── */}
+            {loading && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {[...Array(4)].map((_, i) => (
+                        <div key={i} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 animate-pulse" style={{ animationDelay: `${i * 80}ms` }}>
+                            <div className="flex gap-3">
+                                <div className="w-16 h-16 rounded-xl bg-gray-100 shrink-0" />
+                                <div className="flex-1 space-y-2">
+                                    <div className="h-4 bg-gray-100 rounded-lg w-3/4" />
+                                    <div className="h-3 bg-gray-100 rounded-lg w-1/2" />
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {/* ── Empty ── */}
+            {!loading && filtered.length === 0 && (
+                <div className="bg-white rounded-2xl border border-dashed border-gray-200 py-16 text-center">
+                    <div className="w-16 h-16 rounded-2xl bg-amber-50 flex items-center justify-center mx-auto mb-4">
+                        <Icon icon="solar:cart-large-bold" width={32} className="text-amber-400" />
+                    </div>
+                    <p className="text-base font-bold text-gray-600">
+                        {filter ? `No ${STATUS_CONFIG[filter]?.label ?? filter} products` : "No products yet"}
+                    </p>
+                    <p className="text-sm text-gray-400 mt-1 mb-5">
+                        {filter ? "Try a different filter." : "Start by listing your first product."}
+                    </p>
+                    {!filter && (
+                        <Link href="/account/post/product/new"
+                            className="inline-flex items-center gap-2 px-5 py-2.5 bg-linear-to-r from-amber-500 to-orange-500 text-white rounded-xl text-sm font-semibold hover:shadow-md hover:-translate-y-px transition-all">
+                            <Icon icon="solar:add-circle-bold" width={16} />
+                            Add your first product
+                        </Link>
+                    )}
+                </div>
+            )}
+
+            {/* ── Product card grid ── */}
+            {!loading && filtered.length > 0 && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {filtered.map(product => {
+                        const cfg = STATUS_CONFIG[product.status] ?? STATUS_CONFIG.draft;
+                        return (
+                            <div key={product._id}
+                                className="group bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-all duration-200 overflow-hidden">
+                                <div className="flex gap-3 p-4">
+                                    {/* Thumbnail */}
+                                    <div className="w-16 h-16 rounded-xl bg-gray-100 overflow-hidden shrink-0 relative">
+                                        {product.image ? (
+                                            <img src={product.image} alt={product.title}
+                                                className="w-full h-full object-cover" />
+                                        ) : (
+                                            <div className="w-full h-full flex items-center justify-center">
+                                                <Icon icon="solar:box-bold" width={24} className="text-gray-300" />
                                             </div>
-                                        </td>
-                                    </tr>
-                                );
-                            })}
-                        </tbody>
-                    </table>
+                                        )}
+                                    </div>
+
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-sm font-bold text-gray-900 truncate group-hover:text-indigo-600 transition-colors">
+                                            {product.title}
+                                        </p>
+                                        <p className="text-xs text-gray-400 mt-0.5">
+                                            {new Date(product.createdAt).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}
+                                        </p>
+                                        <span className={`inline-flex items-center gap-1 mt-1.5 text-[10px] font-bold px-2 py-0.5 rounded-full ${cfg.bg} ${cfg.text}`}>
+                                            <span className={`w-1 h-1 rounded-full ${cfg.dot}`} />
+                                            {cfg.label}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                {/* Action bar */}
+                                <div className="flex items-center gap-2 px-4 pb-4 pt-0 border-t border-gray-50">
+                                    <Link href={`/account/post/product/${product._id}`}
+                                        className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition">
+                                        <Icon icon="solar:pen-bold" width={13} />
+                                        Edit
+                                    </Link>
+                                    <Link href={`/${product.slug}`} target="_blank"
+                                        className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-gray-50 text-gray-600 hover:bg-gray-100 transition">
+                                        <Icon icon="solar:eye-bold" width={13} />
+                                        View
+                                    </Link>
+                                    <button onClick={() => handleDelete(product._id)}
+                                        disabled={deleting === product._id}
+                                        className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-red-50 text-red-500 hover:bg-red-100 transition disabled:opacity-50">
+                                        {deleting === product._id
+                                            ? <Icon icon="svg-spinners:ring-resize" width={13} />
+                                            : <Icon icon="solar:trash-bin-trash-bold" width={13} />}
+                                    </button>
+                                </div>
+                            </div>
+                        );
+                    })}
                 </div>
             )}
         </div>
