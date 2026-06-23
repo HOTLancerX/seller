@@ -8,14 +8,15 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { Icon } from "@iconify/react";
 import { useUser } from "@/context/Provider";
+import { xFetch } from "@/lib/express";
 
 interface Product {
-    _id: string;
-    title: string;
-    slug: string;
-    status: string;
-    image?: string;
-    price?: number;
+    _id:       string;
+    title:     string;
+    slug:      string;
+    status:    string;
+    image?:    string;
+    price?:    number;
     createdAt: string;
 }
 
@@ -25,13 +26,28 @@ const STATUS_CONFIG: Record<string, { label: string; dot: string; bg: string; te
     trash:     { label: "Trash",     dot: "bg-red-400",     bg: "bg-red-50",      text: "text-red-700"     },
 };
 
+/** Build a public URL respecting the stored permalink prefix */
+function buildViewUrl(permalinks: Record<string, string>, type: string, slug: string): string {
+    const prefix = (permalinks[type] ?? "").trim().replace(/^\/+|\/+$/g, "");
+    return prefix ? `/${prefix}/${slug}` : `/${slug}`;
+}
+
 export default function SellerProductList() {
     const { user } = useUser();
 
-    const [products, setProducts] = useState<Product[]>([]);
-    const [loading,  setLoading]  = useState(true);
-    const [deleting, setDeleting] = useState<string | null>(null);
-    const [filter,   setFilter]   = useState("");
+    const [products,   setProducts]   = useState<Product[]>([]);
+    const [loading,    setLoading]    = useState(true);
+    const [deleting,   setDeleting]   = useState<string | null>(null);
+    const [filter,     setFilter]     = useState("");
+    const [permalinks, setPermalinks] = useState<Record<string, string>>({});
+
+    // Load permalink map once
+    useEffect(() => {
+        xFetch("/permalink", { cache: "no-store" })
+            .then((r) => r.json())
+            .then((data) => { if (data && typeof data === "object" && !data.error) setPermalinks(data); })
+            .catch(() => {});
+    }, []);
 
     const fetchProducts = useCallback(async () => {
         if (!user?._id) return;
@@ -196,7 +212,7 @@ export default function SellerProductList() {
                                         <Icon icon="solar:pen-bold" width={13} />
                                         Edit
                                     </Link>
-                                    <Link href={`/${product.slug}`} target="_blank"
+                                    <Link href={buildViewUrl(permalinks, "product", product.slug)} target="_blank"
                                         className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-gray-50 text-gray-600 hover:bg-gray-100 transition">
                                         <Icon icon="solar:eye-bold" width={13} />
                                         View

@@ -1,14 +1,13 @@
 /**
  * GET /api/seller/products?userId=<id>
  * Returns all products uploaded by a specific seller.
- * userId is stored in PostInfo { name: "userId", value: "<id>" }.
+ * userId is stored directly on the Post document (post.userId field).
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { resolveUser } from "@/lib/session";
 import connectDB from "@/lib/mongodb";
 import Post from "@/models/post";
-import PostInfo from "@/models/post_info";
 
 export const dynamic = "force-dynamic";
 
@@ -33,22 +32,8 @@ export async function GET(req: NextRequest): Promise<Response> {
 
         await connectDB();
 
-        // Step 1: find all postIds where PostInfo name="userId" value=targetUserId
-        const infoMatches = await PostInfo.find({ name: "userId", value: targetUserId })
-            .select("postId").lean() as any[];
-
-        if (infoMatches.length === 0) {
-            return NextResponse.json({ products: [], total: 0, page, pages: 1 });
-        }
-
-        const postIds = infoMatches.map((d: any) => d.postId).filter(Boolean);
-
-        if (postIds.length === 0) {
-            return NextResponse.json({ products: [], total: 0, page, pages: 1 });
-        }
-
-        // Step 2: fetch products
-        const query = { _id: { $in: postIds }, type: "product" };
+        // Query directly on post.userId — no PostInfo join needed
+        const query = { type: "product", userId: targetUserId };
         const [posts, total] = await Promise.all([
             Post.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).lean() as Promise<any[]>,
             Post.countDocuments(query),

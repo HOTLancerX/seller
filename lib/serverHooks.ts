@@ -35,20 +35,12 @@ registerServerDataHook("seller", async (_id, _slug, data) => {
         userInfoDocs.forEach((d: any) => { uiMap[d.name] = String(d.value ?? ""); });
 
         // ── Find all published products uploaded by this seller ───────────────
-        const sellerPostInfos = await PostInfo.find({
-            name:  "userId",
-            value: String(user._id),
-        }).lean() as any[];
-
-        const postIds = sellerPostInfos.map((p: any) => p.postId);
-
-        const products = postIds.length > 0
-            ? await Post.find({
-                _id:    { $in: postIds },
-                type:   "product",
-                status: "published",
-            }).sort({ createdAt: -1 }).lean() as any[]
-            : [];
+        // Query post.userId directly — no PostInfo join needed
+        const products = await Post.find({
+            type:   "product",
+            status: "published",
+            userId: String(user._id),
+        }).sort({ createdAt: -1 }).lean() as any[];
 
         // Enrich + fully serialize (no ObjectId / Date / Buffer on any field)
         const enrichedProducts = await Promise.all(
