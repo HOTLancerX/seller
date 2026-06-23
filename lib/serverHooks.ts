@@ -59,17 +59,22 @@ registerServerDataHook("seller", async (_id, _slug, data) => {
 
         // Fully-serialized seller — no Mongoose types
         const seller = {
-            _id:     String(user._id),
-            name:    String(user.name    ?? ""),
-            slug:    String(user.slug    ?? ""),
-            image:   String(user.image   ?? ""),
-            type:    String(user.type    ?? ""),
-            address: String(user.address ?? ""),
-            city:    String(user.city    ?? ""),
-            state:   String(user.state   ?? ""),
-            bio:     String(uiMap.bio     ?? ""),
-            website: String(uiMap.website ?? ""),
-            twitter: String(uiMap.twitter ?? ""),
+            _id:                  String(user._id),
+            name:                 String(user.name    ?? ""),
+            slug:                 String(user.slug    ?? ""),
+            image:                String(user.image   ?? ""),
+            type:                 String(user.type    ?? ""),
+            address:              String(user.address ?? ""),
+            city:                 String(user.city    ?? ""),
+            state:                String(user.state   ?? ""),
+            bio:                  String(uiMap.bio                  ?? ""),
+            website:              String(uiMap.website              ?? ""),
+            twitter:              String(uiMap.twitter              ?? ""),
+            seller_cover:         String(uiMap.seller_cover         ?? ""),
+            seller_store_name:    String(uiMap.seller_store_name    ?? ""),
+            seller_description:   String(uiMap.seller_description   ?? ""),
+            seller_whatsapp:      String(uiMap.seller_whatsapp      ?? ""),
+            seller_business_email: String(uiMap.seller_business_email ?? ""),
         };
 
         return { seller, products: enrichedProducts, activeBox: null };
