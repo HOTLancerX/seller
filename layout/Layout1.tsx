@@ -16,7 +16,6 @@
  *   - Published products grid using the active product-box template
  */
 
-import Image from "next/image";
 import Link from "next/link";
 import { Icon } from "@iconify/react";
 import SellerProductGrid from "./SellerProductGrid";
@@ -27,7 +26,7 @@ interface SellerInfo {
     _id:                   string;
     name:                  string;
     slug:                  string;
-    image:                 string;
+    image:                 string;  // user.image — main profile photo
     type:                  string;
     address:               string;
     city:                  string;
@@ -35,6 +34,7 @@ interface SellerInfo {
     bio:                   string;
     website:               string;
     twitter:               string;
+    seller_image:          string;  // UserInfo — store-specific avatar
     seller_cover:          string;
     seller_store_name:     string;
     seller_description:    string;
@@ -75,6 +75,7 @@ export default function SellerLayout1({
     const activeBox = pageData?.activeBox ?? null;
 
     const displayName    = seller?.seller_store_name || seller?.name || data.title;
+    const avatarImage    = seller?.seller_image || seller?.image || "";  // store avatar > user avatar
     const productPrefix  = (permalinkMap["product"] ?? "product").trim().replace(/^\/+|\/+$/g, "") || "product";
     const currencySymbol = (settings.product_currency_symbol as string) || "$";
 
@@ -83,14 +84,11 @@ export default function SellerLayout1({
 
             {/* ── Cover photo ── */}
             {seller?.seller_cover ? (
-                <div className="relative w-full h-48 sm:h-64 overflow-hidden bg-linear-to-r from-orange-500 to-amber-600">
-                    <Image
+                <div className="relative w-full h-48 md:max-h-64 overflow-hidden">
+                    <img
                         src={seller.seller_cover}
                         alt={`${displayName} cover`}
-                        fill
-                        className="object-cover"
-                        sizes="100vw"
-                        priority
+                        className="w-full h-full object-cover"
                     />
                     <div className="absolute inset-0 bg-black/30" />
                 </div>
@@ -104,16 +102,12 @@ export default function SellerLayout1({
 
                     {/* Avatar — overlaps the cover */}
                     <div className="shrink-0 z-10">
-                        {seller?.image ? (
-                            <div className="relative w-28 h-28 rounded-2xl overflow-hidden ring-4 ring-white shadow-xl">
-                                <Image
-                                    src={seller.image}
-                                    alt={displayName}
-                                    fill
-                                    className="object-cover"
-                                    sizes="112px"
-                                />
-                            </div>
+                        {avatarImage ? (
+                            <img
+                                src={avatarImage}
+                                alt={displayName}
+                                className="w-28 h-28 rounded-2xl object-cover ring-4 ring-white shadow-xl"
+                            />
                         ) : (
                             <div className="w-28 h-28 rounded-2xl bg-linear-to-br from-orange-500 to-amber-600 flex items-center justify-center text-white font-bold text-5xl ring-4 ring-white shadow-xl">
                                 {displayName.charAt(0).toUpperCase()}
