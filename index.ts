@@ -30,7 +30,7 @@
  */
 
 import { addHook, addPostType, type PluginMeta } from "@/hook";
-import { Switch, Number as NumberField, Text } from "@/components/ui";
+import { Switch, Number as NumberField, Select } from "@/components/ui";
 import SellerProductList  from "./pages/SellerProductList";
 import SellerProductForm  from "./pages/SellerProductForm";
 import SellerOrderList    from "./pages/SellerOrderList";
@@ -92,7 +92,7 @@ export function register() {
         },
     ], PLUGINS.nx);
 
-    // ─── User.form — seller approval toggle (admin-only) ─────────────────────
+    // ─── User.form — seller approval + post status default (admin-only) ─────
     addHook("User.form", [
         {
             key:       "seller_approved",
@@ -101,6 +101,18 @@ export function register() {
             style:     "right",
             position:  10,
             component: Switch,
+        },
+        {
+            key:      "seller_post_status",
+            label:    "Product Default Status",
+            type:     "admin",
+            style:    "right",
+            position: 11,
+            component: Select,
+            options: [
+                { value: "published", label: "Published (auto-live)" },
+                { value: "draft",     label: "Draft (needs review)"  },
+            ],
         },
     ], PLUGINS.nx);
 
