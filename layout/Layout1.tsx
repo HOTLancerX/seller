@@ -84,7 +84,7 @@ export default function SellerLayout1({
 
             {/* ── Cover photo ── */}
             {seller?.seller_cover ? (
-                <div className="relative w-full h-48 md:max-h-64 overflow-hidden">
+                <div className="relative w-full h-48 md:h-[250px] overflow-hidden">
                     <img
                         src={seller.seller_cover}
                         alt={`${displayName} cover`}

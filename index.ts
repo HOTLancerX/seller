@@ -11,13 +11,31 @@
  *   • My Products     → /account/post/product
  *   • Seller Orders   → /account/seller-orders
  *   • Wallet          → /account/seller-wallet
+ *   • Return Requests → /account/seller-returns
  *
  * ── Commission & wallet logic ─────────────────────────────────────────────────
  *   When an order item reaches "delivered" status:
  *     1. A seller_transaction is created (status: pending, 7-day hold).
+ *        availableAfter = deliveredAt + 7 days.
+ *        wallet.pendingBalance += sellerNetAmount, wallet.totalEarned += sellerNetAmount.
  *     2. After 7 days, POST /api/seller/wallet/process releases it to available.
+ *        wallet.balance += amount, wallet.pendingBalance -= amount.
  *     3. If the order is cancelled during the hold, the transaction is voided.
+ *        wallet.pendingBalance -= amount.
  *     4. Seller can request a withdrawal; admin approves/rejects.
+ *
+ * ── Return & refund logic ─────────────────────────────────────────────────────
+ *   Within 7 days of delivery, the buyer can open a return request.
+ *   Flow:
+ *     buyer submits  → status: pending_seller
+ *     seller accepts → status: pending_admin
+ *     seller rejects → status: rejected_seller (terminal)
+ *     admin approves → status: approved (triggers full refund)
+ *       - order.status    = "cancelled"
+ *       - order.paymentStatus = "refunded"
+ *       - pending seller transactions → cancelled, pendingBalance reversed
+ *       - available seller transactions → cancelled, balance reversed + debit created
+ *     admin rejects  → status: rejected_admin (terminal)
  *
  * ── API routes (auto-discovered by hook/pluginApiRoutes.ts) ──────────────────
  *   GET  /api/seller/products               → seller's product list
@@ -27,6 +45,12 @@
  *   POST /api/seller/wallet/process         → cron: release/cancel pending
  *   GET  /api/seller/withdrawals            → admin: list requests
  *   PUT  /api/seller/withdrawals            → admin: approve/reject
+ *
+ * ── Return request API (in product plugin, auto-discovered) ──────────────────
+ *   POST /api/orders/:orderNumber/return    → buyer submits return request
+ *   GET  /api/orders/:orderNumber/return    → fetch return request(s) for order
+ *   GET  /api/returns                       → list returns (role-scoped)
+ *   PUT  /api/returns                       → seller/admin respond to return
  */
 
 import { addHook, addPostType, type PluginMeta } from "@/hook";
@@ -36,6 +60,7 @@ import SellerProductForm  from "./pages/SellerProductForm";
 import SellerOrderList    from "./pages/SellerOrderList";
 import SellerOrderDetails from "./pages/SellerOrderDetails";
 import SellerWallet       from "./pages/SellerWallet";
+import SellerReturns      from "./pages/SellerReturns";
 import WithdrawalManager  from "./admin/WithdrawalManager";
 import SellerList         from "./admin/SellerList";
 import SellerLayout1      from "./layout/Layout1";
@@ -186,6 +211,15 @@ export function register() {
             position:   7,
             sellerOnly: true,
         },
+        {
+            key:        "seller-returns",
+            label:      "Return Requests",
+            icon:       "solar:box-minimalistic-bold",
+            slug:       "seller-returns",
+            parent:     "",
+            position:   8,
+            sellerOnly: true,
+        },
     ], PLUGINS.nx);
 
     // ─── User account pages ───────────────────────────────────────────────────
@@ -229,6 +263,14 @@ export function register() {
             style:    "left",
             position: 8,
             path:     SellerWallet,
+        },
+        {
+            key:      "seller-returns",
+            label:    "Return Requests",
+            type:     "seller-returns",
+            style:    "left",
+            position: 9,
+            path:     SellerReturns,
         },
     ], PLUGINS.nx);
 }
