@@ -145,6 +145,7 @@ export default function SellerOrderDetails() {
     const [note,     setNote]     = useState("");
     const [saving,   setSaving]   = useState(false);
     const [saveMsg,  setSaveMsg]  = useState("");
+    const [locationMap, setLocationMap] = useState<Record<string, string>>({});
 
     // Enriched items with commission breakdown
     const [enrichedItems, setEnrichedItems] = useState<OrderItem[]>([]);
@@ -184,6 +185,20 @@ export default function SellerOrderDetails() {
     }, [id, user?._id]);
 
     useEffect(() => { fetchOrder(); }, [fetchOrder]);
+
+    useEffect(() => {
+        fetch("/api/location/category?type=location")
+            .then((r) => (r.ok ? r.json() : { categories: [] }))
+            .then((data) => {
+                const map: Record<string, string> = {};
+                for (const loc of data.categories || []) {
+                    const locId = loc.id || loc._id;
+                    if (locId) map[locId] = loc.title;
+                }
+                setLocationMap(map);
+            })
+            .catch(() => {});
+    }, []);
 
     const handleSave = async () => {
         if (!order || !newStatus) return;
@@ -441,7 +456,7 @@ export default function SellerOrderDetails() {
                             )}
                             {order.shippingAddress.address && <p>{order.shippingAddress.address}</p>}
                             {(order.shippingAddress.city || order.shippingAddress.state) && (
-                                <p>{[order.shippingAddress.city, order.shippingAddress.state].filter(Boolean).join(", ")}</p>
+                                <p>{[locationMap[order.shippingAddress.city] || order.shippingAddress.city, locationMap[order.shippingAddress.state] || order.shippingAddress.state].filter(Boolean).join(", ")}</p>
                             )}
                             {order.shippingAddress.zipCode && <p>{order.shippingAddress.zipCode}</p>}
                         </div>
