@@ -40,6 +40,7 @@ export default function SellerProductList() {
     const [deleting,   setDeleting]   = useState<string | null>(null);
     const [filter,     setFilter]     = useState("");
     const [permalinks, setPermalinks] = useState<Record<string, string>>({});
+    const [membership, setMembership] = useState<{ status: string; productCount: number; limit: number; pkgName: string; expiresAt: string | null } | null>(null);
 
     // Load permalink map once
     useEffect(() => {
@@ -63,6 +64,27 @@ export default function SellerProductList() {
     }, [user?._id]);
 
     useEffect(() => { fetchProducts(); }, [fetchProducts]);
+
+    // Load membership status
+    useEffect(() => {
+        if (!user?._id) return;
+        fetch(`/api/seller-membership/status?userId=${user._id}`, { cache: "no-store" })
+            .then((r) => r.json())
+            .then((data) => {
+                if (data.membership) {
+                    const m = data.membership;
+                    const pkg = data.package;
+                    setMembership({
+                        status: m.status,
+                        productCount: m.productCount ?? 0,
+                        limit: pkg?.productLimit ?? 0,
+                        pkgName: pkg?.name ?? "",
+                        expiresAt: m.expiresAt,
+                    });
+                }
+            })
+            .catch(() => {});
+    }, [user?._id]);
 
     const handleDelete = async (id: string) => {
         if (!confirm("Delete this product? This cannot be undone.")) return;
@@ -99,12 +121,50 @@ export default function SellerProductList() {
                         {loading ? "Loading…" : `${products.length} product${products.length !== 1 ? "s" : ""} total`}
                     </p>
                 </div>
-                <Link href="/account/post/product/new"
-                    className="inline-flex items-center gap-2 bg-linear-to-r from-amber-500 to-orange-500 text-white px-4 py-2.5 rounded-xl font-semibold hover:shadow-md hover:shadow-amber-200 hover:-translate-y-px transition-all text-sm">
-                    <Icon icon="solar:add-circle-bold" width={18} />
-                    Add Product
-                </Link>
+                {membership && membership.limit > 0 && membership.productCount >= membership.limit ? (
+                    <span className="inline-flex items-center gap-2 bg-gray-200 text-gray-500 px-4 py-2.5 rounded-xl font-semibold text-sm cursor-not-allowed">
+                        <Icon icon="solar:add-circle-bold" width={18} />
+                        Limit Reached
+                    </span>
+                ) : (
+                    <Link href="/account/post/product/new"
+                        className="inline-flex items-center gap-2 bg-linear-to-r from-amber-500 to-orange-500 text-white px-4 py-2.5 rounded-xl font-semibold hover:shadow-md hover:shadow-amber-200 hover:-translate-y-px transition-all text-sm">
+                        <Icon icon="solar:add-circle-bold" width={18} />
+                        Add Product
+                    </Link>
+                )}
             </div>
+
+            {/* ── Membership banner ── */}
+            {membership && membership.limit > 0 && (
+                <div className={`rounded-xl px-4 py-3 text-sm border ${
+                    membership.productCount >= membership.limit
+                        ? "bg-red-50 border-red-200 text-red-700"
+                        : membership.productCount >= membership.limit - 2
+                            ? "bg-amber-50 border-amber-200 text-amber-700"
+                            : "bg-indigo-50 border-indigo-200 text-indigo-700"
+                }`}>
+                    <div className="flex items-center justify-between gap-3 flex-wrap">
+                        <span className="flex items-center gap-2 font-medium">
+                            <Icon icon="solar:crown-bold" width={16} />
+                            {membership.pkgName} — {membership.productCount}/{membership.limit} products used
+                        </span>
+                        <Link href="/account/membership" className="text-xs font-semibold underline underline-offset-2">
+                            {membership.productCount >= membership.limit ? "Upgrade now" : "View membership"}
+                        </Link>
+                    </div>
+                    {membership.productCount >= membership.limit && (
+                        <p className="text-xs mt-1.5">
+                            You&apos;ve reached your upload limit. Upgrade your membership to add more products.
+                        </p>
+                    )}
+                    {membership.expiresAt && (
+                        <p className="text-xs mt-1 opacity-70">
+                            Expires: {new Date(membership.expiresAt).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}
+                        </p>
+                    )}
+                </div>
+            )}
 
             {/* ── Status filter tabs ── */}
             {!loading && products.length > 0 && (
