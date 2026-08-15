@@ -10,7 +10,7 @@ import PostInfo from "@/models/post_info";
 import { getTransactionModel } from "../models/Transaction";
 import { updateWallet } from "../models/Wallet";
 
-const PLUGIN_NX = "com.system.seller";
+const PLUGIN_NX = "seller";
 
 // ─── Action: return.approved ──────────────────────────────────────────────────
 // Fired by product/api/returns/route.ts when admin approves a return.
@@ -25,7 +25,7 @@ addAction<{ orderNumber: string; callerId: string }>(
 
         const sellerTxs = await TxModel.find({
             orderNumber,
-            type:   "credit",
+            type: "credit",
             status: { $in: ["pending", "available"] },
         }).lean() as any[];
 
@@ -43,18 +43,18 @@ addAction<{ orderNumber: string; callerId: string }>(
                 );
                 await updateWallet(tx.userId, { balance: -tx.amount, totalEarned: -tx.amount });
                 await TxModel.create({
-                    userId:         tx.userId,
-                    orderId:        tx.orderId,
+                    userId: tx.userId,
+                    orderId: tx.orderId,
                     orderNumber,
-                    type:           "debit",
-                    status:         "paid",
-                    gross:          tx.gross,
+                    type: "debit",
+                    status: "paid",
+                    gross: tx.gross,
                     commissionRate: tx.commissionRate,
-                    adminAmount:    tx.adminAmount,
-                    amount:         tx.amount,
-                    note:           `Return refund reversal for order ${orderNumber}`,
-                    createdAt:      now,
-                    updatedAt:      now,
+                    adminAmount: tx.adminAmount,
+                    amount: tx.amount,
+                    note: `Return refund reversal for order ${orderNumber}`,
+                    createdAt: now,
+                    updatedAt: now,
                 });
             }
         }
@@ -78,7 +78,7 @@ addAction<{
     "order.delivered",
     async ({ orderNumber, orderId, items, now }) => {
         await connectDB();
-        const TxModel        = getTransactionModel();
+        const TxModel = getTransactionModel();
         const availableAfter = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
         // Group items by seller
@@ -93,14 +93,14 @@ addAction<{
         for (const [sellerId, sellerItems] of bySellerMap) {
             // Idempotency check
             const existing = await TxModel.findOne({
-                userId:      sellerId,
+                userId: sellerId,
                 orderNumber,
-                type:        "credit",
-                status:      { $in: ["pending", "available"] },
+                type: "credit",
+                status: { $in: ["pending", "available"] },
             }).lean();
             if (existing) continue;
 
-            let gross          = 0;
+            let gross = 0;
             let commissionRate = 0;
 
             for (const item of sellerItems) {
@@ -110,7 +110,7 @@ addAction<{
                     try {
                         const catInfo = await PostInfo.findOne({
                             postId: item.productId,
-                            name:   "category",
+                            name: "category",
                         }).lean() as any;
 
                         if (catInfo?.value) {
@@ -118,7 +118,7 @@ addAction<{
                             const catInfoCol = await getCollection("cat_infos");
                             const commInfo = await catInfoCol.findOne({
                                 catId: catInfo.value,
-                                name:  "seller_commission",
+                                name: "seller_commission",
                             });
                             const rate = parseFloat((commInfo as any)?.value ?? "0");
                             if (!isNaN(rate) && rate > 0) commissionRate = rate;
@@ -127,26 +127,26 @@ addAction<{
                 }
             }
 
-            const adminAmount  = parseFloat(((gross * commissionRate) / 100).toFixed(2));
+            const adminAmount = parseFloat(((gross * commissionRate) / 100).toFixed(2));
             const sellerAmount = parseFloat((gross - adminAmount).toFixed(2));
 
             await TxModel.create({
-                userId:         sellerId,
+                userId: sellerId,
                 orderId,
                 orderNumber,
-                type:           "credit",
-                status:         "pending",
+                type: "credit",
+                status: "pending",
                 gross,
                 commissionRate,
                 adminAmount,
-                amount:         sellerAmount,
+                amount: sellerAmount,
                 availableAfter,
-                note:           `Earnings from order ${orderNumber}. Available after ${availableAfter.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}.`,
+                note: `Earnings from order ${orderNumber}. Available after ${availableAfter.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}.`,
             });
 
             await updateWallet(sellerId, {
                 pendingBalance: sellerAmount,
-                totalEarned:    sellerAmount,
+                totalEarned: sellerAmount,
             });
         }
     },
